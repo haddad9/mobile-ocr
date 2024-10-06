@@ -4,9 +4,12 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.widget.Button
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
@@ -17,7 +20,6 @@ import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -25,6 +27,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var captureButton: Button
+    private lateinit var outputText: TextView
     private lateinit var imageCapture: ImageCapture
     private lateinit var cameraExecutor: ExecutorService
 
@@ -34,6 +37,7 @@ class MainActivity : AppCompatActivity() {
 
         previewView = findViewById(R.id.previewView)
         captureButton = findViewById(R.id.capture_button)
+        outputText = findViewById(R.id.output_text) // Initialize the TextView
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -44,7 +48,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         captureButton.setOnClickListener {
-            takePhoto()
+            //  can still use this for capturing images if needed
+//            takePhoto()
+
         }
     }
 
@@ -57,14 +63,20 @@ class MainActivity : AppCompatActivity() {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
 
-            imageCapture = ImageCapture.Builder().build()
+            val imageAnalysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+
+            imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
+                processImage(imageProxy)
+            }
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             try {
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageCapture
+                    this, cameraSelector, preview, imageAnalysis
                 )
             } catch (exc: Exception) {
                 Log.e("CameraX", "Use case binding failed", exc)
@@ -93,11 +105,15 @@ class MainActivity : AppCompatActivity() {
             val inputImage = InputImage.fromMediaImage(mediaImage, image.imageInfo.rotationDegrees)
             val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
+            // Apply any preprocessing steps here before OCR
+
             recognizer.process(inputImage)
                 .addOnSuccessListener { visionText ->
-                    for (block in visionText.textBlocks) {
-                        val blockText = block.text
-                        Log.d("OCR", blockText)
+                    val recognizedText = visionText.text
+                    Log.d("OCR", recognizedText)
+                    runOnUiThread {
+                        outputText.text = recognizedText // Set the recognized text to the TextView
+                        outputText.visibility = View.VISIBLE // Make the TextView visible
                     }
                 }
                 .addOnFailureListener { e ->
